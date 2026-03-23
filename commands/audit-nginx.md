@@ -63,3 +63,22 @@ Present a summary to the user showing:
 - PASS/FAIL/WARN for each check category
 - Total findings by severity
 - Recommended next steps
+
+## Machine-Readable Output (--json)
+
+When invoked with the `--json` flag:
+
+- **Suppress all human-readable output** — no markdown tables, no interactive prompts
+- **Output a single JSON object to stdout** with the following top-level keys:
+  - `run_id` — the generated run ID
+  - `audit_score` — integer 0-100 representing overall compliance score
+  - `pass` — boolean, true if all critical checks passed
+  - `categories` — object keyed by check category name, each containing:
+    - `status` — `"pass"`, `"fail"`, or `"warn"`
+    - `findings` — array of finding objects for that category
+    - `severity` — highest severity finding in this category
+  - `findings` — flat array of all finding objects (severity, category, description, affected_file, line_number, proposed_fix)
+  - `summary` — object with `total_findings`, `critical_count`, `high_count`, `medium_count`, `low_count`
+  - `proposed_rules` — array of proposed rule objects
+- **Exit code 0** if `pass` is true, **exit code 1** if any critical check fails
+- **CI/CD friendly** — use as a gate: `audit-nginx --json | jq -e '.pass'`

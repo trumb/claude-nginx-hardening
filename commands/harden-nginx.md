@@ -45,8 +45,9 @@ Interpret the user's intent and route to the appropriate workflow:
 - `full` → complete lifecycle (analyze → audit → review → stage → deploy)
 - `ioc <source>` → IoC response workflow
 - `recipe <action>` → recipe management
-- `exceptions <action>` → exception management
-- `rollback` → rollback workflow
+- `exceptions` → dispatch /manage-exceptions workflow
+- `rollback` → dispatch /rollback-nginx workflow
+- `learnings <action>` → learnings management (list, promote, compact, export)
 
 ### 3. Interactive Menu
 On bare invocation with no arguments or ambiguous input, present:
@@ -59,9 +60,10 @@ What would you like to do?
 3. Audit config — check nginx config for security compliance
 4. Deploy — apply staged changes (requires prior analyze/audit)
 5. Respond to IoC — process threat intelligence indicators
-6. Manage recipes — create, run, list, edit saved workflows
+6. Manage recipes — create, run, list, edit saved workflows (Phase 3)
 7. Manage exceptions — review, create, renew security exceptions
-8. Review learnings — check what the plugin has learned over time
+8. Review/manage learnings — list, promote, compact, export
+9. Rollback to previous state — restore from backup
 ```
 
 ## Full Lifecycle Workflow
@@ -86,6 +88,69 @@ When the user requests a full run:
 
 Each run gets a unique ID: `run-YYYYMMDD-HHMMSS` (e.g., `run-20260323-193000`).
 Create `outputs/<run-id>/` directory for all artifacts.
+
+## Machine-Readable Output (--json)
+
+When invoked with the `--json` flag:
+
+- **Suppress all human-readable output** — no markdown tables, no interactive prompts, no status messages to stdout
+- **Output a single JSON object to stdout** with the following top-level keys:
+  - `mode` — `"recommendation"` or `"enforcement"`
+  - `run_id` — the generated run ID (e.g., `"run-20260323-193000"`)
+  - `findings` — array of finding objects (severity, category, description, affected_path, proposed_action)
+  - `proposed_rules` — array of proposed rule objects (rule_class, target_file, content_preview, risk_score)
+  - `deployment_plan` — object with steps, estimated_impact, rollback_strategy (null if recommendation mode)
+  - `exceptions_delta` — array of exceptions created, renewed, or expired during this run
+  - `learnings_delta` — array of learnings created, promoted, or compacted during this run
+- **Exit code 0** on success, **non-zero** on failure (with error details in a top-level `error` key)
+- **CI/CD friendly** — designed for pipeline integration, `jq` filtering, and automated decision gates
+
+Example: `harden-nginx full --json | jq '.findings[] | select(.severity == "critical")'`
+
+## Learnings Management
+
+### `/harden-nginx learnings list`
+
+Show all learnings grouped by type and status:
+
+- **Types:** attack-pattern, scanner-signature, config-drift, false-positive
+- **Statuses:** draft (discovered but not yet deployed), active (deployed), promoted (validated and permanent)
+- Display in a table: ID, type, status, path_class, hit_count, discovered_date, last_seen
+- With `--json`: output the learnings array directly
+
+### `/harden-nginx learnings promote <learning-id>`
+
+Promote a learning from `active` to `promoted` status:
+
+- **Prerequisite:** The learning must have status `active` (i.e., it has been deployed at least once)
+- Attempting to promote a `draft` learning fails with an error explaining it must be deployed first
+- Updates the learning file's `status` field and adds a `promoted_date` timestamp
+- Appends a promotion record to CHANGELOG.md
+- Promoted learnings are never auto-compacted or expired
+
+### `/harden-nginx learnings compact`
+
+Compact the learnings index when it exceeds 150 lines:
+
+- **Merge related attack patterns** — entries sharing the same `path_class` are merged into a single entry:
+  - Sum `hit_count` values
+  - Keep the earliest `discovered_date`
+  - Keep the latest `last_seen`
+  - Concatenate unique `source_ips` lists (capped at 50)
+- **Archive stale drafts** — draft learnings older than 30 days are moved to `learnings/archive/` and removed from the active index
+- **Preserve promoted references** — promoted learnings are never merged, archived, or modified
+- **Append compaction record** to CHANGELOG.md with: date, lines_before, lines_after, merged_count, archived_count
+- Report compaction summary to user
+
+### `/harden-nginx learnings export`
+
+Export all learnings as JSON for sharing or importing into another instance:
+
+- Output a JSON array of all learning objects (all types, all statuses)
+- Include full metadata: id, type, status, path_class, pattern, hit_count, dates, source
+- Write to `outputs/learnings-export-YYYYMMDD.json`
+- With `--stdout`: write to stdout instead of file (for piping)
+- Importable by another instance via future `learnings import` command
 
 ## Safety Rules
 

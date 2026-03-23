@@ -44,6 +44,27 @@ python3 scripts/schema-validator.py --type <type> --file <file>
 ```
 If ANY validation fails → abort deploy, show errors.
 
+**Step 2b: Compatibility Check**
+```bash
+# Run all 9 compatibility checks against proposed config
+python3 scripts/compatibility-checker.py --proposed <proposed-config> --current <current-config> --profile <profile>
+```
+- If any check returns **critical** severity → **abort deploy**, show the failing checks
+- If checks return **warning** severity → display warnings, require explicit user confirmation to proceed
+- See @skills/nginx-hardening/COMPATIBILITY-CHECKS.md for the full check reference
+
+**Step 2c: Blast-Radius Analysis**
+```bash
+# Analyze which sites/upstreams are affected by the proposed changes
+python3 scripts/blast-radius.py --proposed <proposed-config> --current <current-config>
+```
+- Present the blast-radius summary to the user before proceeding:
+  - Number of server blocks affected
+  - List of affected domains/listen directives
+  - Upstream dependencies impacted
+  - Estimated traffic scope (if log data available)
+- **Pause for user confirmation** — user must explicitly approve after reviewing blast radius
+
 **Step 3: Backup**
 Create timestamped backup of every config file that will be modified:
 ```bash
@@ -94,3 +115,26 @@ If anything goes wrong after Step 4:
 3. Reload nginx with restored config
 4. Report failure details
 5. Do NOT attempt to fix — recommend manual investigation
+
+## Machine-Readable Output (--json)
+
+When invoked with the `--json` flag:
+
+- **Suppress all human-readable output** — no interactive confirmations (requires `--yes` for unattended use)
+- **Output a single JSON object to stdout** with the following top-level keys:
+  - `run_id` — the run ID being deployed
+  - `success` — boolean, true if deployment completed successfully
+  - `steps` — array of step objects, each containing:
+    - `name` — step name (e.g., `"validate"`, `"compatibility_check"`, `"blast_radius"`, `"backup"`, `"write_config"`, `"nginx_test"`, `"reload"`, `"git_push"`)
+    - `status` — `"pass"`, `"fail"`, or `"skipped"`
+    - `duration_ms` — execution time in milliseconds
+    - `details` — step-specific details object (errors, warnings, etc.)
+  - `backup_ids` — array of backup file paths created during this deployment
+  - `nginx_test_result` — object with `exit_code`, `stdout`, `stderr`
+  - `reload_status` — object with `exit_code`, `timestamp`
+  - `compatibility_results` — object with per-check pass/fail/warning status
+  - `blast_radius` — object with affected_server_blocks, affected_domains, estimated_traffic_scope
+  - `rollback_performed` — boolean, true if automatic rollback was triggered
+  - `error` — error details if `success` is false (null otherwise)
+- **Exit code 0** on successful deployment, **non-zero** on any failure
+- **CI/CD friendly** — designed for deployment pipelines: `deploy-nginx --json --yes | jq -e '.success'`

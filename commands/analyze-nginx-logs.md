@@ -79,3 +79,20 @@ Artifacts in `outputs/<run-id>/`:
 - `findings.json` — Layer 3 findings
 - `proposed-rules/` — Accepted rules staged for deploy
 - `run-summary.md` — Human-readable summary
+
+## Machine-Readable Output (--json)
+
+When invoked with the `--json` flag:
+
+- **Suppress all human-readable output** — no interactive review prompts, no markdown summaries
+- **Auto-accept all findings** (no interactive review step; use `--reject-all` to override)
+- **Output a single JSON object to stdout** with the following top-level keys:
+  - `run_id` — the generated run ID
+  - `log_sources` — array of log file paths analyzed
+  - `sanitized_events_summary` — object with total_events, unique_ips, unique_paths, unique_user_agents, time_range
+  - `findings` — array of finding objects (id, severity, category, pattern, hit_count, first_seen, last_seen, proposed_rule)
+  - `proposed_rules` — array of proposed rule objects staged for deployment
+  - `learnings_delta` — array of new or updated learnings from this analysis run:
+    - Each entry: learning_id, type, status, action (created/updated), path_class, hit_count_added
+- **Exit code 0** on success, **non-zero** on pipeline failure (sanitizer error, parse error)
+- **CI/CD friendly** — pipe to `jq` for filtering: `analyze-nginx-logs --json | jq '.findings[] | select(.severity == "critical")'`
