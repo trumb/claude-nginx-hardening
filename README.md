@@ -1,6 +1,6 @@
 # claude-nginx-hardening
 
-Full-lifecycle nginx security hardening plugin for [Claude Code](https://claude.ai/claude-code).
+Full-lifecycle nginx security hardening plugin for [Claude Code](https://code.claude.com/docs/en/overview).
 
 ## What It Does
 
