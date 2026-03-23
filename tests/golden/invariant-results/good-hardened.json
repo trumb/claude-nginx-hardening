@@ -1,0 +1,43 @@
+{
+  "overall": "pass",
+  "timestamp": "(dynamic)",
+  "proposed_path": "(dynamic)/tests/fixtures/configs/good-hardened.conf",
+  "backup_path": "(dynamic)/tests/fixtures/configs/good-hardened.conf",
+  "invariants": {
+    "1_additive_only": {
+      "status": "pass",
+      "details": "No rules removed"
+    },
+    "2_no_regex_negation": {
+      "status": "pass",
+      "details": "0 violations found"
+    },
+    "3_headers_immutable": {
+      "status": "pass",
+      "details": "All 6 headers present and unchanged"
+    },
+    "4_tls_floor": {
+      "status": "pass",
+      "details": "TLSv1.2 TLSv1.3 only"
+    },
+    "9_nginx_test": {
+      "status": "skip",
+      "details": "Not requested"
+    },
+    "10_backup_exists": {
+      "status": "skip",
+      "details": "Not required"
+    },
+    "11_no_destructive_git": {
+      "status": "skip",
+      "details": "No command checked"
+    },
+    "17_scope_check": {
+      "status": "pass",
+      "details": "Blast radius: exact-location",
+      "blast_radius": "exact-location"
+    }
+  },
+  "warnings": [],
+  "errors": []
+}

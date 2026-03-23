@@ -1,0 +1,47 @@
+{
+  "overall": "fail",
+  "timestamp": "(dynamic)",
+  "proposed_path": "(dynamic)/tests/fixtures/configs/bad-missing-headers.conf",
+  "backup_path": "(dynamic)/tests/fixtures/configs/good-hardened.conf",
+  "invariants": {
+    "1_additive_only": {
+      "status": "pass",
+      "details": "No rules removed"
+    },
+    "2_no_regex_negation": {
+      "status": "pass",
+      "details": "0 violations found"
+    },
+    "3_headers_immutable": {
+      "status": "fail",
+      "details": "Missing security headers: ['X-Frame-Options']"
+    },
+    "4_tls_floor": {
+      "status": "pass",
+      "details": "TLSv1.2 TLSv1.3 only"
+    },
+    "9_nginx_test": {
+      "status": "skip",
+      "details": "Not requested"
+    },
+    "10_backup_exists": {
+      "status": "skip",
+      "details": "Not required"
+    },
+    "11_no_destructive_git": {
+      "status": "skip",
+      "details": "No command checked"
+    },
+    "17_scope_check": {
+      "status": "warn",
+      "details": "Blast radius 'include-file' is broader than server-block",
+      "blast_radius": "include-file"
+    }
+  },
+  "warnings": [
+    "Invariant 17_scope_check: Blast radius 'include-file' is broader than server-block"
+  ],
+  "errors": [
+    "Invariant 3_headers_immutable: Missing security headers: ['X-Frame-Options']"
+  ]
+}
