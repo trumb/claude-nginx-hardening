@@ -1,0 +1,17 @@
+{
+  "run_id": "run-20260323-193000",
+  "findings": [
+    {
+      "finding_id": "NH-AUDIT-HEADERS-0001",
+      "category": "missing-security-headers",
+      "severity": "high",
+      "description": "Server block missing hardening snippet include"
+    },
+    {
+      "finding_id": "NH-LOG-SCANNER-0001",
+      "category": "scanner-detected",
+      "severity": "medium",
+      "description": "Nuclei scanner detected in access logs"
+    }
+  ]
+}
