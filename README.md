@@ -1,5 +1,224 @@
 # claude-nginx-hardening
 
-Claude Code plugin for full lifecycle nginx security hardening.
+Full-lifecycle nginx security hardening plugin for [Claude Code](https://claude.ai/claude-code).
 
-> Work in progress — Phase 1 implementation underway.
+## What It Does
+
+A Claude Code plugin that audits nginx configs, analyzes access logs for attack patterns, generates blocking rules, responds to indicators of compromise, and deploys hardening changes through a gated pipeline. Covers 35 attack categories derived from live honeypot data. Implements a 5-layer security pipeline that never exposes raw attacker data to the LLM. Enforces 18 invariants on every operation.
+
+## Quick Start
+
+```bash
+# Install the plugin (from the Claude Code CLI)
+claude plugin add trumb/claude-nginx-hardening
+
+# First run — audit your nginx config
+/harden-nginx audit
+
+# Analyze access logs for attack patterns
+/harden-nginx analyze-logs
+
+# Full lifecycle: analyze + audit + review + stage + deploy
+/harden-nginx full
+```
+
+The plugin auto-detects nginx configs in `/etc/nginx/sites-enabled/` and logs in `/var/log/nginx/`. All operations default to **Recommendation Mode** (read-only) — no files are modified unless you explicitly opt in.
+
+## Commands
+
+| Command | Description | Default Mode |
+|---|---|---|
+| `/harden-nginx` | Main entry — NL routing, explicit subcommands, or interactive menu | R0+R1 |
+| `/harden-nginx audit` | Config compliance audit (headers, TLS, blocking rules, 35 categories) | R0+R1 |
+| `/harden-nginx analyze-logs` | Log analysis through sanitizer pipeline (scanner detection, attack patterns) | R0+R1 |
+| `/harden-nginx deploy` | Staged deployment (backup, validate, write, nginx -t, reload) | W1 (explicit) |
+| `/harden-nginx ioc` | IoC/threat intel response — local + feed-based indicator matching | R0+R1 |
+| `/harden-nginx recipe` | Recipe management — create, run, list, edit saved workflows | R0+R1 |
+| `/harden-nginx exceptions` | Exception management — review, create, renew security exceptions | R0+R1 |
+| `/harden-nginx rollback` | Rollback — restore config from timestamped backups | R0+R1 |
+
+Append `--apply` for local writes or `--deploy` for full enforcement (writes + git push + remote execution).
+
+## Security Pipeline
+
+```
+Layer 1: log-parser agent      Read-only, hex-encodes attacker payloads
+   |                           Extracts structured events from raw logs
+   v
+Layer 2: sanitizer.py          Deterministic (no LLM), allowlist filtering
+   |                           Strips PII, validates fields, enforces length limits
+   v
+Layer 3: config-auditor        Read + stage only, proposes rules
+   |                           Generates findings, maps to categories, drafts rule blocks
+   v
+Layer 4: decision gate         Human accept/reject
+   |                           Presents diff, risk assessment, rollback plan
+   v
+Layer 5: invariant-checker     invariant-checker.py + nginx -t + backup + deploy
+                               Validates rule syntax, checks invariants, tests config
+```
+
+Data flows strictly downward. No layer can invoke a higher-numbered layer. Layer 2 output is the only data Layer 3 ever sees from logs.
+
+## Analysis Levels
+
+| Level | Scope | Checks | Activation |
+|---|---|---|---|
+| **L1 -- Static Config** | nginx conf files | Headers, TLS floor, unsafe directives, include hierarchy, location precedence, rate limiting, proxy headers | Always |
+| **L2 -- Log Analysis** | access/error logs | Scanner UAs, brute-force patterns, exploit path probing (categories 1-35), method anomalies, status distributions, IoC matching | If logs present |
+| **L3 -- Live Verification** | HTTP(S) requests | Response header verification, TLS handshake, blocked path checks, deny behavior, health endpoint | Opt-in (`--live`) |
+
+L3 forbidden actions: intrusive fuzzing, brute-force testing, content mutation, high-rate probing (>1 req/sec).
+
+## 35 Attack Categories
+
+### Original (1-20)
+
+| # | Category | Threat | Examples |
+|---|---|---|---|
+| 1 | Dotfiles | Exposed VCS/config | `/.git/HEAD`, `/.svn/entries`, `/.DS_Store` |
+| 2 | Script extensions | Direct script exec | `/.env.php`, `/shell.asp`, `/cmd.jsp` |
+| 3 | Source maps | Client code leak | `/app.js.map`, `/main.css.map` |
+| 4 | Config files | Credential/secret leak | `/.env`, `/.env.bak`, `/config.yml`, `/.npmrc` |
+| 5 | WordPress | WP exploitation | `/wp-login.php`, `/wp-admin/`, `/xmlrpc.php` |
+| 6 | Spring Actuator | Java app internals | `/actuator/health`, `/actuator/env`, `/jolokia/` |
+| 7 | Swagger/OpenAPI | API schema leak | `/swagger-ui.html`, `/api-docs`, `/openapi.json` |
+| 8 | PHP/Laravel debug | Debug info leak | `/_debugbar`, `/telescope`, `/phpinfo.php` |
+| 9 | Container/K8s | Orchestration metadata | `/.kube/config`, `/api/v1/pods`, `/.docker/config.json` |
+| 10 | JS dev tools | Dev tooling exposure | `/webpack.config.js`, `/.babelrc`, `/vite.config.ts` |
+| 11 | Atlassian | Jira/Confluence exploit | `/jira/`, `/confluence/`, `/%24%7Bjndi:` |
+| 12 | MS Exchange | Exchange/OWA exploit | `/owa/`, `/ecp/`, `/autodiscover/autodiscover.xml` |
+| 13 | GraphQL | Introspection/abuse | `/graphql`, `/graphiql`, `/?query={__schema}` |
+| 14 | Admin panels | Admin discovery | `/admin/`, `/cpanel/`, `/phpmyadmin/` |
+| 15 | CVE probes | Known vuln scanning | `/cgi-bin/`, `/..;/`, `/%2e%2e/`, `/proxy:http` |
+| 16 | WP user enum | User enumeration | `/?author=1`, `/wp-json/wp/v2/users` |
+| 17 | Path traversal | Directory escape | `/../../../etc/passwd`, `/....//....//` |
+| 18 | Phishing kits | Hosted phish artifacts | `/office365/`, `/banking/login.html` |
+| 19 | Backup/bin dirs | Exposed backups | `/backup/`, `/db.sql.gz`, `/site.tar.gz` |
+| 20 | robots/security.txt | Recon via metadata | `/robots.txt` abuse, `/.well-known/security.txt` abuse |
+
+### March 2026 (21-35)
+
+| # | Category | Threat | Examples |
+|---|---|---|---|
+| 21 | HNAP/Router | Router exploitation | `/HNAP1/`, `/cgi-bin/luci`, `/goform/` |
+| 22 | VPN/SSL gateways | VPN appliance targeting | `/remote/login`, `/dana-na/`, `/+CSCOE+/` |
+| 23 | Apache Struts | Struts RCE probing | `/struts/`, `/*.action`, `/devmode.action` |
+| 24 | Log4Shell/JNDI | JNDI injection | `/${jndi:ldap://`, `/${jndi:rmi://` |
+| 25 | SSH key/cloud creds | Credential file theft | `/.ssh/id_rsa`, `/.aws/credentials` |
+| 26 | IoT/OEM devices | IoT mgmt interfaces | `/cgi-bin/ViewLog.asp`, `/camera/`, `/ISAPI/` |
+| 27 | Package manager files | Dependency leak | `/package.json`, `/composer.json`, `/Gemfile.lock` |
+| 28 | App settings files | App config leak | `/appsettings.json`, `/application.yml`, `/settings.py` |
+| 29 | XDEBUG | PHP debug interface | `/?XDEBUG_SESSION_START`, `/?PHPSTORM` |
+| 30 | Enterprise apps | Enterprise probes | `/sap/`, `/Citrix/`, `/ibm/`, `/oracle/` |
+| 31 | InfluxDB | Time-series DB exposure | `/query?db=`, `/api/v2/buckets` |
+| 32 | Network infra | Network device UIs | `/cgi-bin/config.exp`, `/level/15/exec/`, `/tmui/` |
+| 33 | Lotus Notes | Legacy groupware | `/names.nsf`, `/domcfg.nsf`, `/webadmin.nsf` |
+| 34 | Login discovery | Auth endpoint enum | `/login`, `/signin`, `/auth/`, `/api/auth` |
+| 35 | Misc exploit paths | Uncategorized probes | `/console/`, `/debug/`, `/status`, `/server-info` |
+
+## Operating Modes
+
+| Mode | Trigger | Actions | File Writes |
+|---|---|---|---|
+| **Recommendation** (default) | Any command without flags | Static analysis, log parsing, finding generation, rule proposals | None |
+| **Enforcement** | `--apply` or `--deploy` flag, or human acceptance at decision gate | Backup, write rule, invariant checks, `nginx -t`, deploy, reload | Yes |
+
+Recommendation Mode never modifies any file. Enforcement Mode requires passing all 5 pipeline layers including human approval at Layer 4.
+
+## Action Classes
+
+| Class | Name | Description |
+|---|---|---|
+| **R0** | Read-only | Read configs, logs (via sanitizer), recipes, learnings, exceptions, feeds |
+| **R1** | Stage-only | Generate proposals, reports, JSON outputs, deployment plans to stdout/staging |
+| **W1** | Local write | Write backups, reports, learnings, exceptions, configs, CHANGELOG entries |
+| **W2** | Network write | Git push, feed polling state, remote API writes (Cloudflare, GitHub) |
+| **X1** | Remote execution | SSH deploy, remote `nginx -t`, remote reload, cron/systemd job install |
+
+Escalation: R0+R1 (default) -> W1 (`--apply`) -> W1+W2+X1 (`--deploy`). No auto-escalation.
+
+## Rule Classes
+
+| Class | Name | Emergency Eligible | Auto-Generate | Blast Radius |
+|---|---|---|---|---|
+| **A** | Containment Controls | Yes (narrow scope) | Yes | Prefer exact-location |
+| **B** | Request Handling | No | Yes | Requires precedence checks |
+| **C** | Baseline Hardening | No | Yes | Requires compatibility checks |
+| **D** | Behavioral/Routing | Blocked | Recommendation only | Manual implementation only |
+
+Emergency mode is time-limited (max 24h). Class A rules with narrow scope can deploy with reduced confirmation. Class D rules are never auto-generated.
+
+## Environment Profiles
+
+| Profile | Description | Rule Classes | Default Level |
+|---|---|---|---|
+| `edge-public` | Internet-facing reverse proxy | A, B, C | L1+L2 |
+| `internal-only` | Private/internal deployment | B, C | L1 |
+| `api-gateway` | Strict API protection | A, B, C | L1+L2 |
+| `static-site` | Static file serving, aggressive hardening | A, B, C | L1 |
+| `reverse-proxy-app` | App-backed proxy, compatibility sensitive | B, C | L1 |
+| `high-risk-lockdown` | Maximum containment posture | A, B, C | L1+L2+L3 |
+
+## 18 Invariants
+
+1. **Additive-only** -- Generated rules can only add or tighten blocking rules, never remove or weaken
+2. **No regex negation** -- No `(?!...)`, `!~`, `proxy_pass`, `return 200`, or `rewrite` in generated rules
+3. **Headers immutable** -- Cannot remove or weaken X-Frame-Options, X-Content-Type-Options, HSTS, Referrer-Policy, Permissions-Policy
+4. **TLS floor at 1.2** -- `ssl_protocols` must not include TLSv1.0 or TLSv1.1
+5. **Raw logs never enter LLM** -- All log data passes through sanitizer.py before any agent sees it
+6. **No attacker strings in shell** -- Log-derived data never interpolated into Bash commands
+7. **No attacker strings in commits** -- Commit messages use category labels and counts only
+8. **No attacker strings in learnings** -- Learning bodies contain sanitized summaries; raw payloads hex-encoded with warnings
+9. **nginx -t before every reload** -- Config must pass syntax validation; on failure, restore from backup
+10. **Backup before every write** -- Timestamped `.bak` copy created before any config modification
+11. **No destructive git ops** -- `push --force`, `reset --hard`, `checkout .`, `clean -f` are forbidden
+12. **Exceptions require reason + compensating control** -- Both fields mandatory, non-empty
+13. **Exceptions cannot override invariants 1-11** -- Exceptions suppress findings, not invariants
+14. **Exceptions expire (max 365 days)** -- Tiered nag schedule; critical exceptions block deploy after expiry
+15. **Changelog append-only** -- CHANGELOG.md is never edited in-place or truncated
+16. **Compaction preserves counts and dates** -- Merged hit counts must sum; first_seen must be earliest
+17. **Narrow scope preferred** -- Exact-location > server-block > include-file > global; global requires confirmation
+18. **Secrets never in output** -- No credentials, keys, or tokens in chat, learnings, changelog, recipes, commits, or artifacts
+
+## Exception System
+
+Exceptions suppress specific findings (not invariants). Dual persistence: markdown files in `learnings/exceptions/` and JSON validated by `schema-validator.py`. Tiered expiry based on severity -- critical exceptions nag at 90/60/30 days and block deploy after expiry; high/low exceptions warn only. Maximum lifetime: 365 days. Every exception requires a reason, compensating control, owner, and approval reference.
+
+## Learnings System
+
+The plugin auto-captures reusable knowledge during analysis runs: attack patterns, scanner signatures, infrastructure observations, exception rationale, and IoC responses. Learnings are indexed in `learnings/LEARNINGS.md` with changes tracked in `learnings/CHANGELOG.md`. Compaction merges related entries while preserving aggregate hit counts and earliest discovery dates (Invariant 16). Learnings promote through lifecycle states: draft -> active -> compacted.
+
+## Recipe System (Phase 3)
+
+Named, composable workflows that sequence plugin commands with configuration. Recipes support scheduling (cron/manual/event-driven), environment profiles, privilege ceilings, confirmation checkpoints, and emergency mode eligibility. Remote deploy via SSH with host groups. Stored in `learnings/recipes/` with schema validation.
+
+## IoC / Threat Intel (Phase 3)
+
+Indicator-of-compromise response workflow. Matches IPs, paths, and User-Agents against local learnings plus 10 built-in threat feeds (NVD, ExploitDB, RSS aggregators) and custom feeds. Produces containment recommendations (Class A rules) with automatic enrichment from available feeds. Feed unavailability degrades gracefully -- results marked as partial, pipeline continues.
+
+## Roadmap
+
+| Phase | Status | Scope |
+|---|---|---|
+| **Phase 1** | Done | Core pipeline (audit, analyze-logs, deploy), 5-layer security model, 18 invariants, 35 attack categories, 6 profiles, learnings system, exception system |
+| **Phase 2** | Planned | Rollback workflow, exception management UI, compaction automation, multi-host deploy |
+| **Phase 3** | Planned | Recipe system, IoC/threat intel feeds, scheduled workflows, remote deploy, emergency mode |
+
+## Related Projects
+
+- [trumb/nginx-hardening](https://github.com/trumb/nginx-hardening) -- The security configs (blocking rules, scanner UA lists, security headers) that this plugin audits and manages
+
+## Contributing
+
+1. Fork the repo
+2. Create a feature branch
+3. Ensure all invariants pass: `python3 scripts/invariant-checker.py`
+4. Validate schemas: `python3 scripts/schema-validator.py`
+5. Submit a PR with a description of what changed and why
+
+Bug reports and feature requests via [GitHub Issues](https://github.com/trumb/claude-nginx-hardening/issues).
+
+## License
+
+[MIT](LICENSE)
