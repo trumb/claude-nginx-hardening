@@ -4,7 +4,7 @@ Full-lifecycle nginx security hardening plugin for [Claude Code](https://claude.
 
 ## What It Does
 
-A Claude Code plugin that audits nginx configs, analyzes access logs for attack patterns, generates blocking rules, responds to indicators of compromise, and deploys hardening changes through a gated pipeline. Covers 35 attack categories derived from live honeypot data. Implements a 5-layer security pipeline that never exposes raw attacker data to the LLM. Enforces 18 invariants on every operation.
+A Claude Code plugin that audits nginx configs, analyzes access logs for attack patterns, generates blocking rules, responds to indicators of compromise, and deploys hardening changes through a gated pipeline. Covers 35 attack categories derived from live honeypot data. Implements a 5-layer security pipeline that never exposes raw attacker data to the LLM. Enforces 18 invariants on every operation. Includes IoC/threat intel with 10 built-in feeds, a recipe system with scheduling, canary deployment, rule aging, and environment profiles.
 
 ## Quick Start
 
@@ -20,6 +20,12 @@ claude plugin add trumb/claude-nginx-hardening
 
 # Full lifecycle: analyze + audit + review + stage + deploy
 /harden-nginx full
+
+# Check threat feeds for IoCs
+/harden-nginx ioc --feed all
+
+# Run a saved recipe
+/harden-nginx recipe run weekly-scan
 ```
 
 The plugin auto-detects nginx configs in `/etc/nginx/sites-enabled/` and logs in `/var/log/nginx/`. All operations default to **Recommendation Mode** (read-only) — no files are modified unless you explicitly opt in.
@@ -32,15 +38,16 @@ The plugin auto-detects nginx configs in `/etc/nginx/sites-enabled/` and logs in
 | `/harden-nginx audit` | Config compliance audit (headers, TLS, blocking rules, 35 categories) | R0+R1 |
 | `/harden-nginx analyze-logs` | Log analysis through sanitizer pipeline (scanner detection, attack patterns) | R0+R1 |
 | `/harden-nginx deploy` | Staged deployment (backup, validate, write, nginx -t, reload) | W1 (explicit) |
-| `/harden-nginx ioc` | IoC/threat intel response — local + feed-based indicator matching | R0+R1 |
-| `/harden-nginx recipe` | Recipe management — create, run, list, edit saved workflows | R0+R1 |
+| `/harden-nginx ioc` | IoC/threat intel response — local + feed-based indicator matching, 3 response modes | R0+R1 |
+| `/harden-nginx recipe` | Recipe management — create, run, list, edit, install, export saved workflows | R0+R1 |
+| `/harden-nginx aging` | Rule aging — scan for stale rules, report staleness, tag for review | R0+R1 |
 | `/harden-nginx exceptions` | Exception management — review, create, renew security exceptions | R0+R1 |
 | `/harden-nginx rollback` | Rollback — restore config from timestamped backups with safety checks | R0+R1 |
 | `/harden-nginx learnings` | Learnings management — list, promote, compact, export | R0+R1 |
 
 Append `--apply` for local writes or `--deploy` for full enforcement (writes + git push + remote execution).
 
-All commands support `--json` for machine-readable output.
+All commands support `--json` for machine-readable output and `--profile <name>` for environment profile selection.
 
 ## Security Pipeline
 
@@ -163,6 +170,112 @@ Emergency mode is time-limited (max 24h). Class A rules with narrow scope can de
 | `reverse-proxy-app` | App-backed proxy, compatibility sensitive | B, C | L1 |
 | `high-risk-lockdown` | Maximum containment posture | A, B, C | L1+L2+L3 |
 
+Profiles are selected with the `--profile` flag on `audit`, `analyze-logs`, and the main `/harden-nginx` command. Auto-detected from config when not specified.
+
+## IoC / Threat Intel
+
+Indicator-of-compromise response workflow with 3 response modes and support for multiple indicator sources.
+
+### Response Modes
+
+| Mode | Trigger | Behavior |
+|---|---|---|
+| **Advisory** (default) | No flags | Read-only matching and recommendations |
+| **Stage** | `--apply` | Match + stage containment rules for review |
+| **Emergency** | `--deploy --emergency` | Deploy Class A narrow-scope rules with reduced confirmation (24h TTL) |
+
+### Supported Sources
+
+- **YARA rules** — indicator extraction from strings and metadata
+- **CVE IDs** — lookup via NVD feed, generate findings for matching paths
+- **Text/CSV/JSON** — one indicator per line or structured indicator objects
+- **STIX 2.x** — full indicator extraction (IPs, domains, URLs, hashes)
+- **Built-in feeds** — 10 pre-configured threat intelligence feeds
+- **Custom feeds** — user-defined via environment variables
+
+### Built-in Threat Feeds
+
+| Feed | Auth Required | Data Type |
+|------|--------------|-----------|
+| CISA KEV | No | CVEs |
+| URLhaus | No | Malware URLs |
+| ThreatFox | No | IoCs |
+| OpenPhish | No | Phishing URLs |
+| Blocklist.de | No | Attacker IPs |
+| Feodo Tracker | No | C2 IPs |
+| AlienVault OTX | Yes (`NH_OTX_TOKEN`) | Multi-type |
+| Emerging Threats | Yes (`NH_ET_TOKEN`) | Suricata rules |
+| PhishTank | Optional (`NH_PHISHTANK_TOKEN`) | Phishing URLs |
+| NVD/CVE API | Optional (`NH_NVD_TOKEN`) | CVE details |
+
+Feed unavailability degrades gracefully — results marked as partial, pipeline continues.
+
+## Recipe System
+
+Named, composable workflows that sequence plugin commands with configuration. Recipes support scheduling (cron/systemd/event-driven), environment profiles, privilege ceilings, confirmation checkpoints, and emergency mode eligibility. Remote deploy via SSH with host groups. Stored in `learnings/recipes/` with schema validation.
+
+### Recipe Commands
+
+| Subcommand | Description |
+|---|---|
+| `recipe create` | Interactive builder for new recipes |
+| `recipe run <name>` | Execute a saved recipe |
+| `recipe list` | List all available recipes |
+| `recipe edit <name>` | Edit an existing recipe |
+| `recipe install <name>` | Install recipe as cron job or systemd timer |
+| `recipe export <name>` | Export recipe as portable YAML |
+
+### Scheduling
+
+- **Cron** — install as cron job with `recipe install <name> --cron`
+- **Systemd timer** — generate `.service` and `.timer` units with `recipe install <name> --systemd`
+- **Remote** — schedule on remote hosts via SSH with `recipe install <name> --remote`
+
+### Organic Capture
+
+After any manual analysis run, the plugin offers to save the session as a recipe for future reuse.
+
+## Canary Deployment
+
+Phased rollout for deploying hardening changes across multiple hosts.
+
+### Pipeline
+
+```
+validate → sync → canary → verify → fanout
+```
+
+1. **Validate** — `invariant-checker.py` + `nginx -t` on proposed changes
+2. **Sync** — push config to canary host(s) via SSH/sshpass
+3. **Canary** — apply config on canary host, reload nginx
+4. **Verify** — per-host health check and deny-path verification
+5. **Fanout** — roll out to remaining hosts in the group
+
+### Safety
+
+- Per-host health and deny-path verification at each stage
+- Automatic stop on first failure — no further hosts receive the change
+- Full rollback of canary host on verification failure
+
+## Rule Aging
+
+Staleness detection for deployed blocking rules.
+
+### Commands
+
+| Subcommand | Description |
+|---|---|
+| `aging scan` | Scan deployed rules for staleness indicators |
+| `aging report` | Generate a staleness report with hit counts and last-seen dates |
+| `aging tag` | Tag stale rules for human review |
+
+### Design
+
+- Detects rules that have not matched any traffic in a configurable window
+- Reports staleness with hit counts, last-seen dates, and age metrics
+- Tags stale rules for human review with structured annotations
+- **Never auto-removes rules** (Invariant 1 — additive-only)
+
 ## 18 Invariants
 
 1. **Additive-only** -- Generated rules can only add or tighten blocking rules, never remove or weaken
@@ -192,13 +305,23 @@ Exceptions suppress specific findings (not invariants). Dual persistence: markdo
 
 The plugin auto-captures reusable knowledge during analysis runs: attack patterns, scanner signatures, infrastructure observations, exception rationale, and IoC responses. Learnings are indexed in `learnings/LEARNINGS.md` with changes tracked in `learnings/CHANGELOG.md`. Compaction merges related entries while preserving aggregate hit counts and earliest discovery dates (Invariant 16). Learnings promote through lifecycle states: draft -> active -> compacted.
 
-## Recipe System (Phase 3)
+## Scripts Inventory
 
-Named, composable workflows that sequence plugin commands with configuration. Recipes support scheduling (cron/manual/event-driven), environment profiles, privilege ceilings, confirmation checkpoints, and emergency mode eligibility. Remote deploy via SSH with host groups. Stored in `learnings/recipes/` with schema validation.
+11 Python scripts in `scripts/`:
 
-## IoC / Threat Intel (Phase 3)
-
-Indicator-of-compromise response workflow. Matches IPs, paths, and User-Agents against local learnings plus 10 built-in threat feeds (NVD, ExploitDB, RSS aggregators) and custom feeds. Produces containment recommendations (Class A rules) with automatic enrichment from available feeds. Feed unavailability degrades gracefully -- results marked as partial, pipeline continues.
+| Script | Purpose |
+|---|---|
+| `sanitizer.py` | Layer 2 log sanitizer — allowlist filtering, PII stripping |
+| `invariant-checker.py` | Validates all 18 invariants before deploy |
+| `schema-validator.py` | JSON schema validation for learnings, exceptions, recipes |
+| `compatibility-checker.py` | 9 pre-deployment safety checks |
+| `blast-radius.py` | Impact analysis scoring for proposed changes |
+| `finding-id.py` | Stable finding ID generation and tracking |
+| `ioc-matcher.py` | Indicator matching against logs and config |
+| `feed-poller.py` | Threat feed polling and state management |
+| `recipe-runner.py` | Recipe execution engine |
+| `canary-deployer.py` | Canary deployment pipeline |
+| `rule-aging.py` | Rule staleness detection and reporting |
 
 ## New in Phase 2
 
@@ -210,13 +333,25 @@ Indicator-of-compromise response workflow. Matches IPs, paths, and User-Agents a
 - **Finding ID traceability** — every finding gets a stable ID (`FID-<category>-<hash>`) tracked across runs, enabling exception binding and trend analysis
 - **Learnings management** — `learnings` command with subcommands: `list` (filter/search), `promote` (draft to active), `compact` (merge related entries preserving counts/dates per Invariant 16), `export` (JSON/markdown)
 
+## New in Phase 3
+
+- **IoC/threat intel** — 3 response modes (advisory, stage, emergency), 10 built-in feeds, YARA/CVE/STIX/text source support
+- **Recipe system** — create, run, list, edit, install, export; scheduling via cron, systemd, and remote SSH
+- **Canary deployment** — phased rollout with validate/sync/canary/verify/fanout pipeline, per-host health checks, automatic stop on failure
+- **Rule aging** — staleness detection with scan/report/tag, never auto-removes (Invariant 1)
+- **Environment profile activation** — `--profile` flag on audit, analyze-logs, and main commands
+- **Remote deployment** — SSH/sshpass-based remote execution with host groups
+- **Organic recipe capture** — save any manual run as a reusable recipe
+
 ## Roadmap
 
 | Phase | Status | Scope |
 |---|---|---|
 | **Phase 1** | Done | Core pipeline (audit, analyze-logs, deploy), 5-layer security model, 18 invariants, 35 attack categories, 6 profiles, learnings system, exception system |
 | **Phase 2** | Done | Compatibility checker, blast-radius scoring, rollback manager, finding ID traceability, machine-readable outputs (`--json`), exception management command, learnings management |
-| **Phase 3** | Planned | Recipe system, IoC/threat intel feeds, scheduled workflows, remote deploy, emergency mode |
+| **Phase 3** | Done | Canary deployment, IoC/threat intel (10 built-in feeds), recipe system with scheduling, remote deployment via SSH/sshpass, rule aging/decay, environment profile activation |
+
+**v1.0.0 — All three phases complete.**
 
 ## Related Projects
 
