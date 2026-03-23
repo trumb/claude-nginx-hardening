@@ -43,8 +43,9 @@ Interpret the user's intent and route to the appropriate workflow:
 - `analyze-logs` or `analyze` → dispatch /analyze-nginx-logs workflow
 - `deploy` → dispatch /deploy-nginx workflow
 - `full` → complete lifecycle (analyze → audit → review → stage → deploy)
-- `ioc <source>` → IoC response workflow
-- `recipe <action>` → recipe management
+- `ioc <source>` → dispatch /ioc-nginx workflow (source = CVE ID, URL, IP list, STIX bundle, or free-text advisory)
+- `recipe <action>` → dispatch /manage-recipes workflow (action = create, run, list, edit, delete, schedule)
+- `aging` or `stale` → run `python3 scripts/rule-aging.py report` and display staleness summary
 - `exceptions` → dispatch /manage-exceptions workflow
 - `rollback` → dispatch /rollback-nginx workflow
 - `learnings <action>` → learnings management (list, promote, compact, export)
@@ -55,16 +56,42 @@ On bare invocation with no arguments or ambiguous input, present:
 ```
 What would you like to do?
 
-1. Full lifecycle — analyze logs, audit config, review findings, deploy
-2. Analyze logs — find new attack patterns in nginx logs
-3. Audit config — check nginx config for security compliance
-4. Deploy — apply staged changes (requires prior analyze/audit)
-5. Respond to IoC — process threat intelligence indicators
-6. Manage recipes — create, run, list, edit saved workflows (Phase 3)
-7. Manage exceptions — review, create, renew security exceptions
-8. Review/manage learnings — list, promote, compact, export
-9. Rollback to previous state — restore from backup
+ 1. Full lifecycle (analyze → audit → review → deploy)
+ 2. Analyze logs for new attack patterns
+ 3. Audit config for security compliance
+ 4. Deploy staged changes
+ 5. Respond to IoC / threat intel
+ 6. Manage recipes (create, run, schedule)
+ 7. Manage exceptions
+ 8. Review/manage learnings
+ 9. Rollback to previous state
+10. Rule aging report
 ```
+
+## Profile Flag (--profile)
+
+When `--profile <name>` is specified, the selected profile is passed to all sub-tools (compatibility checker, blast-radius analyzer, audit, and log analysis) to adjust severity thresholds, required checks, and rule behavior.
+
+**Available profiles:**
+| Profile | Description |
+|---|---|
+| `edge-public` | Public-facing edge server — strictest rate limiting, all scanner UA blocking |
+| `internal-only` | Internal/private network — relaxed scanner rules, no public TLS requirements |
+| `api-gateway` | API gateway — focus on method restriction, payload limits, auth headers |
+| `static-site` | Static content only — no proxy_pass, no upstream checks |
+| `reverse-proxy-app` | Reverse proxy to application backends — proxy header checks, upstream health |
+| `high-risk-lockdown` | Maximum security — all warnings become critical, zero tolerance |
+
+**Auto-detection (when `--profile` is omitted):**
+The profile is inferred from config characteristics:
+- Config has `proxy_pass` directives → `reverse-proxy-app`
+- Config is public-facing with `limit_req_zone` → `edge-public`
+- Config has only `root` / `try_files` with no `proxy_pass` → `static-site`
+- Config listens on private subnets (10.x, 172.16-31.x, 192.168.x) → `internal-only`
+- Config has `limit_req` + `limit_conn` + aggressive `client_max_body_size` → `api-gateway`
+- If ambiguous, default to `edge-public` (safest)
+
+Auto-detected profile is shown in output and can be overridden by the user.
 
 ## Full Lifecycle Workflow
 

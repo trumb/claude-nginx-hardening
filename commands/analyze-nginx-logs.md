@@ -7,6 +7,7 @@ description: Analyze nginx access logs for attack patterns, scanner activity, an
 - Log files: !`ls -la /var/log/nginx/*.log 2>/dev/null | head -10 || echo "no logs found"`
 - Rotated logs: !`ls /var/log/nginx/*.gz 2>/dev/null | wc -l` compressed log files found
 - Current learnings: !`wc -l < learnings/LEARNINGS.md 2>/dev/null || echo "0"` lines
+- Profile: !`echo "${NH_PROFILE:-auto-detect}"`
 
 ## Operating Mode
 
@@ -79,6 +80,30 @@ Artifacts in `outputs/<run-id>/`:
 - `findings.json` — Layer 3 findings
 - `proposed-rules/` — Accepted rules staged for deploy
 - `run-summary.md` — Human-readable summary
+
+## Profile Flag (--profile)
+
+When `--profile <name>` is specified (or auto-detected), log analysis adjusts severity thresholds and scanner handling per profile:
+
+| Profile | Behavior Adjustments |
+|---|---|
+| `edge-public` | Default thresholds; all scanner UAs flagged; aggressive pattern matching |
+| `internal-only` | `go-http-client`, `python-requests`, `curl` UAs downgraded to **info** (common in microservice traffic); internal IP ranges excluded from scanner detection |
+| `api-gateway` | Focus on auth bypass attempts, method abuse, payload size violations; lower threshold for path traversal detection |
+| `static-site` | POST/PUT/DELETE requests elevated to **high** severity (unexpected on static sites); upload attempts flagged as **critical** |
+| `reverse-proxy-app` | Upstream error correlation enabled; 502/503 spikes treated as potential DoS indicators |
+| `high-risk-lockdown` | All **medium** findings promoted to **high**, all **high** to **critical**; single-hit anomalies flagged (not just patterns with repeat hits) |
+
+**Profile affects:**
+- Severity thresholds for findings (what counts as critical vs warning)
+- Which scanner user-agents trigger findings vs are ignored
+- Whether internal IPs are included in or excluded from analysis
+- Minimum hit count thresholds for pattern detection
+
+Pass `--profile` to the sanitizer for profile-aware filtering:
+```bash
+python3 scripts/sanitizer.py --input <input> --output <output> --log-source <path> --profile <profile>
+```
 
 ## Machine-Readable Output (--json)
 

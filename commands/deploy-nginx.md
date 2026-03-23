@@ -116,6 +116,77 @@ If anything goes wrong after Step 4:
 4. Report failure details
 5. Do NOT attempt to fix — recommend manual investigation
 
+## Remote / Canary Deployment (--remote)
+
+When `--remote` is specified, escalates to X1 execution class (remote command execution).
+
+### Required Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `NH_SSH_HOST` | Comma-separated list of target hosts (e.g., `web1.example.com,web2.example.com`) |
+| `NH_SSH_USER` | SSH username for all target hosts |
+| `NH_SSH_KEY` | Path to SSH private key (for key-based auth) |
+| `NH_SSH_PASS_ENV` | Name of env var containing SSH password (for sshpass auth; mutually exclusive with NH_SSH_KEY) |
+
+### Canary Deployment Workflow
+
+**Step 1: Local Validation**
+Run all local checks first — invariants, compatibility, blast-radius. If any fail, abort before touching remote hosts.
+
+**Step 2: Generate Deployment Plan**
+```bash
+python3 scripts/deploy-planner.py \
+  --hosts $NH_SSH_HOST \
+  --config-file <config> \
+  --remote-config-path <remote-path>
+```
+Present plan to user with per-host details (host, current config hash, proposed changes, rollback path).
+
+**Step 3: User Approval**
+Pause for explicit user confirmation. Show the full plan including canary strategy and rollback procedure.
+
+**Step 4: Canary Execution**
+```bash
+python3 scripts/canary-deployer.py \
+  --config-file <config> \
+  --hosts $NH_SSH_HOST \
+  --ssh-user $NH_SSH_USER \
+  --ssh-key $NH_SSH_KEY \
+  --remote-config-path <remote-path> \
+  --health-endpoint /health \
+  --verify-deny-paths "/.env,/wp-admin,/actuator/env"
+```
+
+The canary deployer:
+1. Deploys to the **first host only** (canary)
+2. Runs remote `nginx -t` on the canary
+3. Reloads nginx on the canary
+4. Verifies health endpoint returns 200
+5. Verifies deny paths return 403/404
+6. If canary passes → proceeds to remaining hosts one at a time
+7. If canary fails → stops immediately, rolls back canary host
+
+**Step 5: Report Results**
+Report per-host results:
+- Host name, deploy status (success/fail/skipped), nginx -t result, health check result, deny-path verification results
+
+**Step 6: Partial Failure Handling**
+On partial failure (some hosts succeeded, some failed):
+- Show which hosts are in the new state vs old state
+- Identify which hosts need rollback
+- Offer rollback plan: roll back failed hosts, or roll back all hosts to restore consistency
+- Never leave hosts in an inconsistent state without user awareness
+
+### Safety
+
+- **Credentials from env vars only** (Invariant 18) — never prompt user to paste passwords or keys
+- **Canary verification before full fanout** — first host must pass all health/deny checks
+- **Stop on first failure** — do not proceed to remaining hosts if any host fails
+- **Per-host nginx -t before reload** — never reload without a passing config test
+- **`--dry-run` available** — preview the full deployment plan without executing any remote commands
+- **Audit trail** — all remote operations logged to `outputs/<run-id>/remote-deploy-log.json`
+
 ## Machine-Readable Output (--json)
 
 When invoked with the `--json` flag:
