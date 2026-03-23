@@ -35,9 +35,12 @@ The plugin auto-detects nginx configs in `/etc/nginx/sites-enabled/` and logs in
 | `/harden-nginx ioc` | IoC/threat intel response — local + feed-based indicator matching | R0+R1 |
 | `/harden-nginx recipe` | Recipe management — create, run, list, edit saved workflows | R0+R1 |
 | `/harden-nginx exceptions` | Exception management — review, create, renew security exceptions | R0+R1 |
-| `/harden-nginx rollback` | Rollback — restore config from timestamped backups | R0+R1 |
+| `/harden-nginx rollback` | Rollback — restore config from timestamped backups with safety checks | R0+R1 |
+| `/harden-nginx learnings` | Learnings management — list, promote, compact, export | R0+R1 |
 
 Append `--apply` for local writes or `--deploy` for full enforcement (writes + git push + remote execution).
+
+All commands support `--json` for machine-readable output.
 
 ## Security Pipeline
 
@@ -197,12 +200,22 @@ Named, composable workflows that sequence plugin commands with configuration. Re
 
 Indicator-of-compromise response workflow. Matches IPs, paths, and User-Agents against local learnings plus 10 built-in threat feeds (NVD, ExploitDB, RSS aggregators) and custom feeds. Produces containment recommendations (Class A rules) with automatic enrichment from available feeds. Feed unavailability degrades gracefully -- results marked as partial, pipeline continues.
 
+## New in Phase 2
+
+- **`--json` flag** on all commands for machine-readable output (CI/CD integration, scripting)
+- **Compatibility checker** — 9 pre-deployment safety checks (nginx version, directive support, module availability, upstream health, SSL cert validity, rate limit sanity, include path resolution, worker connection capacity, shared memory zones)
+- **Blast-radius scoring** — impact analysis for every proposed change (scope, traffic exposure, reversibility, dependency count)
+- **Rollback with safety backup** — `rollback` command lists, previews, and restores from timestamped backups with pre-restore `nginx -t` validation
+- **Exception management with tiered expiry** — `exceptions` command for reviewing, creating, and renewing exceptions with severity-based nag schedules and deploy blocking for expired critical exceptions
+- **Finding ID traceability** — every finding gets a stable ID (`FID-<category>-<hash>`) tracked across runs, enabling exception binding and trend analysis
+- **Learnings management** — `learnings` command with subcommands: `list` (filter/search), `promote` (draft to active), `compact` (merge related entries preserving counts/dates per Invariant 16), `export` (JSON/markdown)
+
 ## Roadmap
 
 | Phase | Status | Scope |
 |---|---|---|
 | **Phase 1** | Done | Core pipeline (audit, analyze-logs, deploy), 5-layer security model, 18 invariants, 35 attack categories, 6 profiles, learnings system, exception system |
-| **Phase 2** | Planned | Rollback workflow, exception management UI, compaction automation, multi-host deploy |
+| **Phase 2** | Done | Compatibility checker, blast-radius scoring, rollback manager, finding ID traceability, machine-readable outputs (`--json`), exception management command, learnings management |
 | **Phase 3** | Planned | Recipe system, IoC/threat intel feeds, scheduled workflows, remote deploy, emergency mode |
 
 ## Related Projects
