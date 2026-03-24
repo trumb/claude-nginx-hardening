@@ -1,7 +1,7 @@
 {
   "name": "claude-nginx-hardening",
   "description": "Full lifecycle nginx hardening: audit configs, analyze logs, generate rules, respond to IoCs, deploy and monitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "trumb"
   },

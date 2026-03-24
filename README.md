@@ -6,12 +6,41 @@ Full-lifecycle nginx security hardening plugin for [Claude Code](https://code.cl
 
 A Claude Code plugin that audits nginx configs, analyzes access logs for attack patterns, generates blocking rules, responds to indicators of compromise, and deploys hardening changes through a gated pipeline. Covers 35 attack categories derived from live honeypot data. Implements a 5-layer security pipeline that never exposes raw attacker data to the LLM. Enforces 18 invariants on every operation. Includes IoC/threat intel with 10 built-in feeds, a recipe system with scheduling, canary deployment, rule aging, and environment profiles.
 
+## Installation
+
+### From the Claude Code Marketplace (recommended)
+
+```bash
+# Step 1: Add the marketplace (one-time)
+claude plugin marketplace add trumb/claude-nginx-hardening
+
+# Step 2: Install the plugin
+claude plugin install claude-nginx-hardening
+```
+
+### Manual install via --plugin-dir
+
+```bash
+# Clone the repo
+git clone https://github.com/trumb/claude-nginx-hardening.git ~/.claude/plugins/custom/claude-nginx-hardening
+
+# Launch Claude Code with the plugin loaded
+claude --plugin-dir ~/.claude/plugins/custom/claude-nginx-hardening
+```
+
+### Scope options
+
+```bash
+# User-wide (default) — available in all projects
+claude plugin install claude-nginx-hardening --scope user
+
+# Project-only — available only in the current project
+claude plugin install claude-nginx-hardening --scope project
+```
+
 ## Quick Start
 
 ```bash
-# Install the plugin (from the Claude Code CLI)
-claude plugin add trumb/claude-nginx-hardening
-
 # First run — audit your nginx config
 /harden-nginx audit
 
@@ -351,7 +380,7 @@ The plugin auto-captures reusable knowledge during analysis runs: attack pattern
 | **Phase 2** | Done | Compatibility checker, blast-radius scoring, rollback manager, finding ID traceability, machine-readable outputs (`--json`), exception management command, learnings management |
 | **Phase 3** | Done | Canary deployment, IoC/threat intel (10 built-in feeds), recipe system with scheduling, remote deployment via SSH/sshpass, rule aging/decay, environment profile activation |
 
-**v1.0.0 — All three phases complete.**
+**v1.1.0 — All three phases complete. Marketplace install supported.**
 
 ## Related Projects
 
