@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-nginx-hardening",
+  "description": "Full lifecycle nginx hardening: audit configs, analyze logs, generate rules, respond to IoCs, deploy and monitor",
+  "owner": {
+    "name": "trumb"
+  },
+  "plugins": [
+    {
+      "name": "claude-nginx-hardening",
+      "description": "Full lifecycle nginx hardening: audit configs, analyze logs, generate rules, respond to IoCs, deploy and monitor",
+      "author": {
+        "name": "trumb"
+      },
+      "source": "./",
+      "category": "development",
+      "homepage": "https://github.com/trumb/claude-nginx-hardening"
+    }
+  ]
+}
